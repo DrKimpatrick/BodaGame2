@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Kampala Moto - Boda Boda Challenge</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Outfit:wght@300;400;700&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        display: ['Bebas Neue', 'sans-serif'],
+                        body: ['Outfit', 'sans-serif'],
+                    },
+                    colors: {
+                        kampala: {
+                            dust: '#d2691e',
+                            road: '#4a4a4a',
+                            grass: '#556b2f',
+                            accent: '#ffcc00',
+                            hazard: '#3d2b1f',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #1a1a1a;
+            font-family: 'Outfit', sans-serif;
+            touch-action: none;
+        }
+        #game-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            max-width: 600px;
+            margin: 0 auto;
+            background: #222;
+            overflow: hidden;
+            box-shadow: 0 0 50px rgba(0,0,0,0.5);
+        }
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            background: #444;
+        }
+        .glass-panel {
+            background: rgba(0, 0, 0, 0.75);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .btn-primary {
+            background: #ffcc00;
+            color: #000;
+            font-family: 'Bebas Neue', cursive;
+            transition: all 0.2s ease;
+            transform: skewX(-10deg);
+        }
+        .btn-primary:hover {
+            background: #fff;
+            transform: skewX(-10deg) scale(1.05);
+            box-shadow: 0 0 20px rgba(255, 204, 0, 0.6);
+        }
+        .pothole-shadow {
+            filter: drop-shadow(0 5px 5px rgba(0,0,0,0.5));
+        }
+    </style>
+</head>
+<body class="flex items-center justify-center min-h-screen">
+
+    <div id="game-container">
+        <canvas id="gameCanvas"></canvas>
+
+        <!-- Start Screen -->
+        <div id="start-screen" class="absolute inset-0 flex flex-col items-center justify-center z-20 p-6 text-center">
+            <div class="glass-panel p-8 rounded-3xl border-2 border-kampala-accent max-w-xs w-full animate-in fade-in zoom-in duration-300">
+                <h1 class="font-display text-7xl text-kampala-accent mb-2 tracking-widest italic">BORDER TO BODAS</h1>
+                <p class="text-white text-sm mb-8 opacity-80 uppercase tracking-tighter">Navigate the suburbs. Avoid the pits.</p>
+                
+                <div class="space-y-4 mb-10">
+                    <div class="flex items-center justify-center gap-3 text-white/90">
+                        <span class="bg-white/20 px-2 py-1 rounded text-xs font-bold">LEFT / RIGHT</span>
+                        <span class="text-xs">TO STEER BODA</span>
+                    </div>
+                </div>
+
+                <button id="start-btn" class="btn-primary w-full py-4 text-3xl rounded-lg font-bold">START RIDE</button>
+            </div>
+        </div>
+
+        <!-- Game Over Screen -->
+        <div id="game-over-screen" class="absolute inset-0 flex flex-col items-center justify-center z-30 p-6 text-center hidden">
+            <div class="glass-panel p-8 rounded-3xl border-2 border-red-500 max-w-xs w-full">
+                <h2 class="font-display text-6xl text-red-500 mb-2 italic">CRASHED!</h2>
+                <p id="death-reason" class="text-white text-lg mb-6"></p>
+                
+                <div class="mb-8">
+                    <p class="text-gray-400 uppercase text-xs tracking-widest">Distance Traveled</p>
+                    <p id="final-score" class="font-display text-5xl text-white">0m</p>
+                </div>
+
+                <button id="restart-btn" class="btn-primary w-full py-4 text-3xl rounded-lg font-bold">TRY AGAIN</button>
+            </div>
+        </div>
+
+        <!-- HUD -->
+        <div id="hud" class="absolute top-6 left-6 z-10 hidden">
+            <p class="text-kampala-accent font-display text-4xl italic drop-shadow-lg" id="score-display">0m</p>
+        </div>
+        
+        <!-- Mobile Controls -->
+        <div class="absolute bottom-10 left-0 right-0 flex justify-between px-8 z-10 md:hidden opacity-40">
+            <div class="w-16 h-16 rounded-full border-2 border-white flex items-center justify-center text-white text-2xl font-bold">L</div>
+            <div class="w-16 h-16 rounded-full border-2 border-white flex items-center justify-center text-white text-2xl font-bold">R</div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const startScreen = document.getElementById('start-screen');
+        const gameOverScreen = document.getElementById('game-over-screen');
+        const startBtn = document.getElementById('start-btn');
+        const restartBtn = document.getElementById('restart-btn');
+        const scoreDisplay = document.getElementById('score-display');
+        const finalScoreDisplay = document.getElementById('final-score');
+        const deathReasonDisplay = document.getElementById('death-reason');
+        const hud = document.getElementById('hud');
+
+        let gameState = 'START'; // START, PLAYING, GAMEOVER
+        let score = 0;
+        let speed = 8;
+        let roadOffset = 0;
+        let gameWidth, gameHeight;
+        
+        // Player properties
+        const player = {
+            x: 0,
+            y: 0,
+            width: 40,
+            height: 80,
+            targetX: 0,
+            lerpSpeed: 0.15,
+            tilt: 0
+        };
+
+        let potholes = [];
+        let roadsideElements = []; // Trees, dukas
+        const keys = {};
+
+        function init() {
+            resize();
+            window.addEventListener('resize', resize);
+            window.addEventListener('keydown', e => keys[e.code] = true);
+            window.addEventListener('keyup', e => keys[e.code] = false);
+            
+            // Touch support
+            canvas.addEventListener('touchstart', handleTouch);
+            canvas.addEventListener('touchmove', handleTouch);
+
+            startBtn.addEventListener('click', startGame);
+            restartBtn.addEventListener('click', startGame);
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        function handleTouch(e) {
+            if (gameState !== 'PLAYING') return;
+            const touchX = e.touches[0].clientX - canvas.getBoundingClientRect().left;
+            player.targetX = touchX;
+        }
+
+        function resize() {
+            const container = document.getElementById('game-container');
+            gameWidth = container.clientWidth;
+            gameHeight = container.clientHeight;
+            canvas.width = gameWidth;
+            canvas.height = gameHeight;
+            
+            player.x = gameWidth / 2;
+            player.targetX = player.x;
+            player.y = gameHeight * 0.75;
+        }
+
+        function startGame() {
+            gameState = 'PLAYING';
+            score = 0;
+            speed = 8;
+            potholes = [];
+            roadsideElements = [];
+            player.x = gameWidth / 2;
+            player.targetX = player.x;
+            startScreen.classList.add('hidden');
+            gameOverScreen.classList.add('hidden');
+            hud.classList.remove('hidden');
+        }
+
+        function endGame(reason) {
+            gameState = 'GAMEOVER';
+            gameOverScreen.classList.remove('hidden');
+            hud.classList.add('hidden');
+            deathReasonDisplay.innerText = reason;
+            finalScoreDisplay.innerText = Math.floor(score) + "m";
+        }
+
+        function createPothole() {
+            if (Math.random() < 0.02) {
+                const roadWidth = gameWidth * 0.7;
+                const roadLeft = (gameWidth - roadWidth) / 2;
+                potholes.push({
+                    x: roadLeft + Math.random() * roadWidth,
+                    y: -100,
+                    size: 30 + Math.random() * 40,
+                    id: Date.now()
+                });
+            }
+        }
+
+        function createScenery() {
+            if (Math.random() < 0.05) {
+                const isLeft = Math.random() > 0.5;
+                const type = Math.random() > 0.7 ? 'DUKA' : 'TREE';
+                roadsideElements.push({
+                    x: isLeft ? Math.random() * (gameWidth * 0.1) : gameWidth - (Math.random() * (gameWidth * 0.1) + 40),
+                    y: -150,
+                    type: type,
+                    color: type === 'DUKA' ? `hsl(${Math.random() * 360}, 70%, 50%)` : '#2d4c1e'
+                });
+            }
+        }
+
+        function update() {
+            if (gameState !== 'PLAYING') return;
+
+            score += speed / 10;
+            speed += 0.001; // Gradual acceleration
+
+            // Controls
+            if (keys['ArrowLeft']) player.targetX -= 10;
+            if (keys['ArrowRight']) player.targetX += 10;
+            
+            // Apply movement & physics
+            const prevX = player.x;
+            player.x += (player.targetX - player.x) * player.lerpSpeed;
+            player.tilt = (player.x - prevX) * 2;
+
+            // Road Logic
+            const roadWidth = gameWidth * 0.7;
+            const roadLeft = (gameWidth - roadWidth) / 2;
+            const roadRight = roadLeft + roadWidth;
+
+            // Off road check
+            if (player.x < roadLeft || player.x > roadRight) {
+                endGame("You drifted off the road into the dust!");
+            }
+
+            // Road animation
+            roadOffset = (roadOffset + speed) % 100;
+
+            // Potholes
+            createPothole();
+            potholes.forEach((p, index) => {
+                p.y += speed;
+                
+                // Collision check
+                const dx = player.x - p.x;
+                const dy = player.y - p.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                if (distance < (p.size / 2) + 15) {
+                    endGame("That pothole was too deep!");
+                }
+            });
+            potholes = potholes.filter(p => p.y < gameHeight + 100);
+
+            // Scenery
+            createScenery();
+            roadsideElements.forEach(s => s.y += speed);
+            roadsideElements = roadsideElements.filter(s => s.y < gameHeight + 100);
+
+            scoreDisplay.innerText = Math.floor(score) + "m";
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, gameWidth, gameHeight);
+
+            // 1. Background (Dusty Kampala terrain)
+            ctx.fillStyle = '#d2691e'; // Murram soil color
+            ctx.fillRect(0, 0, gameWidth, gameHeight);
+
+            // 2. Road
+            const roadWidth = gameWidth * 0.7;
+            const roadLeft = (gameWidth - roadWidth) / 2;
+            
+            // Road surface
+            ctx.fillStyle = '#4a4a4a';
+            ctx.fillRect(roadLeft, 0, roadWidth, gameHeight);
+
+            // Road Markings (Dashed lines)
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+            ctx.setLineDash([40, 40]);
+            ctx.lineDashOffset = -roadOffset;
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.moveTo(gameWidth / 2, 0);
+            ctx.lineTo(gameWidth / 2, gameHeight);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // 3. Scenery
+            roadsideElements.forEach(s => {
+                if (s.type === 'TREE') {
+                    // Simple palm/tropical tree
+                    ctx.fillStyle = '#4a2c1a';
+                    ctx.fillRect(s.x + 15, s.y + 40, 10, 40);
+                    ctx.fillStyle = s.color;
+                    ctx.beginPath();
+                    ctx.arc(s.x + 20, s.y + 30, 30, 0, Math.PI * 2);
+                    ctx.fill();
+                } else {
+                    // Small roadside kiosk
+                    ctx.fillStyle = s.color;
+                    ctx.fillRect(s.x, s.y, 50, 40);
+                    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+                    ctx.fillRect(s.x + 5, s.y + 10, 40, 20);
+                }
+            });
+
+            // 4. Potholes
+            potholes.forEach(p => {
+                const gradient = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size);
+                gradient.addColorStop(0, '#1a120b');
+                gradient.addColorStop(0.7, '#3d2b1f');
+                gradient.addColorStop(1, 'rgba(61, 43, 31, 0)');
+                
+                ctx.fillStyle = gradient;
+                ctx.beginPath();
+                ctx.ellipse(p.x, p.y, p.size, p.size * 0.6, 0, 0, Math.PI * 2);
+                ctx.fill();
+            });
+
+            // 5. The Boda Boda (Player)
+            drawBoda(player.x, player.y, player.tilt);
+        }
+
+        function drawBoda(x, y, tilt) {
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.rotate(tilt * Math.PI / 180);
+
+            // Shadow
+            ctx.fillStyle = 'rgba(0,0,0,0.3)';
+            ctx.beginPath();
+            ctx.ellipse(0, 40, 20, 45, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Bike Body (Red/Chrome)
+            ctx.fillStyle = '#c0392b';
+            ctx.fillRect(-8, -35, 16, 70);
+            
+            // Tires
+            ctx.fillStyle = '#111';
+            ctx.fillRect(-6, -45, 12, 20); // Front
+            ctx.fillRect(-6, 25, 12, 25);  // Back
+
+            // Engine / Metal bits
+            ctx.fillStyle = '#7f8c8d';
+            ctx.fillRect(-10, -10, 20, 25);
+
+            // Handlebars
+            ctx.strokeStyle = '#333';
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.moveTo(-25, -30);
+            ctx.lineTo(25, -30);
+            ctx.stroke();
+
+            // RIDER (Front)
+            // Shirt
+            ctx.fillStyle = '#2980b9';
+            ctx.beginPath();
+            ctx.arc(0, -10, 12, 0, Math.PI * 2);
+            ctx.fill();
+            // Helmet (Yellow)
+            ctx.fillStyle = '#f1c40f';
+            ctx.beginPath();
+            ctx.arc(0, -25, 10, 0, Math.PI * 2);
+            ctx.fill();
+            // Visor
+            ctx.fillStyle = '#333';
+            ctx.fillRect(-7, -28, 14, 4);
+
+            // PASSENGER (Back)
+            // Shirt
+            ctx.fillStyle = '#8e44ad';
+            ctx.beginPath();
+            ctx.arc(0, 15, 11, 0, Math.PI * 2);
+            ctx.fill();
+            // Head (No helmet usually for passengers in this stylistic version but let's keep it safe)
+            ctx.fillStyle = '#5d4037';
+            ctx.beginPath();
+            ctx.arc(0, 10, 8, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.restore();
+        }
+
+        function gameLoop() {
+            update();
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+        init();
+    </script>
+</body>
+</html>
